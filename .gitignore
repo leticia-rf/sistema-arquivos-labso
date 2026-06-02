@@ -1,0 +1,7 @@
+# Arquivos compilados
+*.o
+
+# Executável do projeto
+rsfs
+a
+b
