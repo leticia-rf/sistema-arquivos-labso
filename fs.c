@@ -42,14 +42,44 @@ typedef struct {
 dir_entry dir[DIRENTRIES];
 
 
-int fs_init() {
-  printf("Função não implementada: fs_init\n");
+int fs_init() { // faz o "inverso" de fs_format
+  // lê o disco e salva fat e dir
+  for(int i = 0; i < 32; i++) {
+    if(!bl_read(i, ((char *) fat) + i * CLUSTERSIZE))
+      return 0;
+  }
+  if(!bl_read(32, (char *) dir))
+    return 0;
+
   return 1;
 }
 
-int fs_format() {
-  printf("Função não implementada: fs_format\n");
-  return 0;
+int fs_format() { 
+  // escreve fat e dir
+  for(int i = 0; i < FATCLUSTERS; i++) {
+    if(i < 32) {
+      fat[i] = 3;
+    }
+    else if(i == 32) {
+      fat[i] = 4;
+    }
+    else {
+      fat[i] = 1;
+    }
+  }
+  for(int i = 0; i < DIRENTRIES; i++) {
+    dir[i].used = '0';
+  }
+
+  // escreve no disco
+  for(int i = 0; i < 32; i++) {
+    if(!bl_write(i, ((char *) fat) + i * CLUSTERSIZE))
+      return 0;
+  }
+  if(!bl_write(32, (char *) dir))
+    return 0;
+
+  return 1;
 }
 
 int fs_free() {
