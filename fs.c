@@ -100,13 +100,26 @@ int fs_format() {
 }
 
 int fs_free() { 
-  printf("Função não implementada: fs_free\n");
-  return 0;
+  if (!formated) {
+    printf("Sistema de Arquivos não formatado!\n");
+    return 0;
+  }
+
+  int clusters_free = 0;
+  for(int i = 33; i < FATCLUSTERS; i++) {
+    if (fat[i] == 1) 
+      clusters_free++;
+  }
+  
+  return clusters_free * CLUSTERSIZE;
 }
 
 int fs_list(char *buffer, int size) { 
-  if (!formated) 
+  if (!formated) {
     printf("Sistema de Arquivos não formatado!\n");
+    return 0;
+  }
+
   return 1;
 }
 
