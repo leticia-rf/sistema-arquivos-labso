@@ -41,6 +41,7 @@ typedef struct {
 
 dir_entry dir[DIRENTRIES];
 
+int formated = 0;
 
 int fs_init() { // faz o "inverso" de fs_format
   // lê o disco e salva fat e dir
@@ -50,6 +51,20 @@ int fs_init() { // faz o "inverso" de fs_format
   }
   if(!bl_read(32, (char *) dir))
     return 0;
+
+  // verificação se está formatado
+  formated = 1;
+  for(int i = 0; i < FATCLUSTERS; i++) {
+    if (i < 32 && fat[i] != 3) {
+      formated = 0;
+    }
+    else if(i == 32 && fat[i] != 4) {
+      formated = 0;
+    }
+    else if (fat[i] != 1 || fat[i] < 0 || (fat[i] >= 3 && fat[i] <= 32) || fat[i] >= FATCLUSTERS) {
+      formated = 0;
+    }
+  }
 
   return 1;
 }
@@ -68,7 +83,7 @@ int fs_format() {
     }
   }
   for(int i = 0; i < DIRENTRIES; i++) {
-    dir[i].used = '0';
+    dir[i].used = 0;
   }
 
   // escreve no disco
@@ -79,25 +94,28 @@ int fs_format() {
   if(!bl_write(32, (char *) dir))
     return 0;
 
+  formated = 1;
+
   return 1;
 }
 
-int fs_free() {
+int fs_free() { 
   printf("Função não implementada: fs_free\n");
   return 0;
 }
 
-int fs_list(char *buffer, int size) {
-  printf("Função não implementada: fs_list\n");
-  return 0;
+int fs_list(char *buffer, int size) { 
+  if (!formated) 
+    printf("Sistema de Arquivos não formatado!\n");
+  return 1;
 }
 
-int fs_create(char* file_name) {
+int fs_create(char* file_name) { 
   printf("Função não implementada: fs_create\n");
   return 0;
 }
 
-int fs_remove(char *file_name) {
+int fs_remove(char *file_name) { 
   printf("Função não implementada: fs_remove\n");
   return 0;
 }
