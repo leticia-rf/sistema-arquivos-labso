@@ -55,17 +55,14 @@ int fs_init() { // faz o "inverso" de fs_format
   // verificação se está formatado
   formated = 1;
   for(int i = 0; i < FATCLUSTERS; i++) {
-    if (i < 32 && fat[i] != 3) {
+    if (i < 32 && fat[i] != 3) 
       formated = 0;
-    }
-    else if(i == 32 && fat[i] != 4) {
+    else if(i == 32 && fat[i] != 4)
       formated = 0;
-    }
-    else if (fat[i] != 1 || fat[i] < 0 || (fat[i] >= 3 && fat[i] <= 32) || fat[i] >= FATCLUSTERS) {
+    else if (i > 32 && (fat[i] >= 3 && fat[i] <= 32))
       formated = 0;
-    }
   }
-
+  
   return 1;
 }
 
