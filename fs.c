@@ -184,8 +184,46 @@ int fs_create(char* file_name) {
 }
 
 int fs_remove(char *file_name) { 
-  printf("Função não implementada: fs_remove\n");
-  return 0;
+  if (!formated) {
+    printf("Sistema de Arquivos não formatado!\n");
+    return 0;
+  }
+
+  //erro se arquivo não existe
+  int pos_dir = -1;
+  for(int i = 0; i < DIRENTRIES; i++){
+    if(dir[i].used && strcmp(file_name, dir[i].name) == 0){
+      pos_dir = i;
+      break;
+    }
+  }
+
+  if(pos_dir == -1){
+    printf("Arquivo não existe.\n");
+    return 0;
+  }
+
+  // atualiza dir e fat
+  dir[pos_dir].used = 0;
+
+  int cur = dir[pos_dir].first_block;
+  while(fat[cur] != 2) {
+      int next = fat[cur];
+      fat[cur] = 1;
+      cur = next;
+  }
+  fat[cur] = 1;
+
+  // escreve no disco
+  for(int i = 0; i < 32; i++) {
+    if(!bl_write(i, ((char *) fat) + i * CLUSTERSIZE))
+      return 0;
+  }
+  
+  if(!bl_write(32, (char *) dir))
+    return 0;
+
+  return 1;
 }
 
 int fs_open(char *file_name, int mode) {
