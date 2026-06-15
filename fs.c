@@ -121,8 +121,66 @@ int fs_list(char *buffer, int size) {
 }
 
 int fs_create(char* file_name) { 
-  printf("Função não implementada: fs_create\n");
-  return 0;
+  if (!formated) {
+    printf("Sistema de Arquivos não formatado!\n");
+    return 0;
+  }
+
+  // nome não pode ser maior ou igual a 25
+  if (strlen(file_name) >= 25) {
+    printf("Nome de arquivo maior que 25 caracteres.\n");
+    return 0;
+  }
+
+  int first_dir = -1;
+  for(int i = 0; i < DIRENTRIES; i++){
+    if(dir[i].used == 0 && first_dir == -1) {
+      first_dir = i;
+    }
+    // erro se o nome já existe
+    if(dir[i].used && strcmp(file_name, dir[i].name) == 0){
+      printf("Nome de arquivo duplicado.\n");
+      return 0;
+    }
+
+  }
+  // erro se não dá para ter mais arquivos
+  if(first_dir == -1){
+    printf("Limite de arquivos alcançado.\n");
+    return 0;
+  }
+
+  // busca primeiro bloco livre na fat
+  int first_fat = -1;
+  for(int i = 33; i < FATCLUSTERS; i++){
+    if(fat[i] == 1){
+      first_fat = i;
+      break;
+    }
+  }
+  if(first_fat == - 1){
+    printf("Nenhum bloco livre.\n");
+    return 0;
+  }
+
+  // preenche fat e dir
+  fat[first_fat] = 2;
+
+  strcpy(dir[first_dir].name, file_name);
+  dir[first_dir].used = 1;
+  dir[first_dir].first_block = first_fat;
+  dir[first_dir].size = 0;
+
+  // escreve no disco
+  for(int i = 0; i < 32; i++) {
+    if(!bl_write(i, ((char *) fat) + i * CLUSTERSIZE))
+      return 0;
+  }
+  
+  if(!bl_write(32, (char *) dir))
+    return 0;
+
+  return 1;
 }
 
 int fs_remove(char *file_name) { 
