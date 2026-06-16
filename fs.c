@@ -117,6 +117,17 @@ int fs_list(char *buffer, int size) {
     return 0;
   }
 
+  int offset = 0, wrt;
+
+  for(int i = 0; i < DIRENTRIES; ++i){
+    if(!dir[i].used) continue;
+
+    wrt = snprintf(buffer + offset, size - offset, "%s\t\t%d\n", dir[i].name, dir[i].size);
+    
+    if (wrt < 0 || wrt >= size - offset) break;    
+    offset += wrt;
+  }
+
   return 1;
 }
 
