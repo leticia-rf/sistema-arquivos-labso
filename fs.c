@@ -155,7 +155,7 @@ int fs_create(char* file_name) {
     }
 
   }
-  // erro se não dá para ter mais arquivos
+  // erro se não tem espaco para mais arquivos
   if(first_dir == -1){
     printf("Limite de arquivos alcançado.\n");
     return 0;
@@ -214,16 +214,17 @@ int fs_remove(char *file_name) {
     return 0;
   }
 
-  // atualiza dir e fat
-  dir[pos_dir].used = 0;
-
+  // atualiza fat e dir
   int cur = dir[pos_dir].first_block;
+
   while(fat[cur] != 2) {
       int next = fat[cur];
       fat[cur] = 1;
       cur = next;
   }
   fat[cur] = 1;
+
+  dir[pos_dir].used = 0;
 
   // escreve no disco
   for(int i = 0; i < 32; i++) {
