@@ -39,7 +39,15 @@ typedef struct {
   int size;
 } dir_entry;
 
+typedef struct {
+  int head;
+  int mode;
+  char open;
+  char buffer[CLUSTERSIZE];
+} dir_info;
+
 dir_entry dir[DIRENTRIES];
+dir_info info[DIRENTRIES];
 
 int formated = 0;
 
@@ -69,18 +77,15 @@ int fs_init() { // faz o "inverso" de fs_format
 int fs_format() { 
   // escreve fat e dir
   for(int i = 0; i < FATCLUSTERS; i++) {
-    if(i < 32) {
-      fat[i] = 3;
-    }
-    else if(i == 32) {
-      fat[i] = 4;
-    }
-    else {
-      fat[i] = 1;
-    }
+    if(i < 32) fat[i] = 3;
+    else if(i == 32) fat[i] = 4;
+    else fat[i] = 1;
   }
+  
   for(int i = 0; i < DIRENTRIES; i++) {
     dir[i].used = 0;
+    info[i].head = 0;
+    info[i].open = 0;
   }
 
   // escreve no disco
@@ -180,6 +185,7 @@ int fs_create(char* file_name) {
   strcpy(dir[first_dir].name, file_name);
   dir[first_dir].used = 1;
   dir[first_dir].first_block = first_fat;
+  info[first_dir].head = first_fat;
   dir[first_dir].size = 0;
 
   // escreve no disco
@@ -192,6 +198,70 @@ int fs_create(char* file_name) {
     return 0;
 
   return 1;
+}
+
+int fs_create_pos(char* file_name) { 
+  if (!formated) {
+    printf("Sistema de Arquivos não formatado!\n");
+    return -1;
+  }
+
+  // nome não pode ser maior ou igual a 25
+  if (strlen(file_name) >= 25) {
+    printf("Nome de arquivo maior que 25 caracteres.\n");
+    return -1;
+  }
+
+  int first_dir = -1;
+  for(int i = 0; i < DIRENTRIES; i++){
+    if(dir[i].used == 0 && first_dir == -1) {
+      first_dir = i;
+    }
+
+    if(dir[i].used && strcmp(file_name, dir[i].name) == 0){
+      printf("Nome de arquivo duplicado.\n");
+      return 0;
+    }
+  }
+
+  // erro se não tem espaco para mais arquivos
+  if(first_dir == -1){
+    printf("Limite de arquivos alcançado.\n");
+    return -1;
+  }
+
+  // busca primeiro bloco livre na fat
+  int first_fat = -1;
+
+  for(int i = 33; i < FATCLUSTERS; i++){
+    if(fat[i] == 1){
+      first_fat = i;
+      break;
+    }
+  }
+  if(first_fat == - 1){
+    printf("Nenhum bloco livre.\n");
+    return -1;
+  }
+
+  // preenche fat e dir
+  fat[first_fat] = 2;
+
+  strcpy(dir[first_dir].name, file_name);
+  dir[first_dir].used = 1;
+  dir[first_dir].first_block = first_fat;
+  dir[first_dir].size = 0;
+
+  // escreve no disco
+  for(int i = 0; i < 32; i++) {
+    if(!bl_write(i, ((char *) fat) + i * CLUSTERSIZE))
+      return -1;
+  }
+  
+  if(!bl_write(32, (char *) dir))
+    return -1;
+
+  return first_dir;
 }
 
 int fs_remove(char *file_name) { 
@@ -239,8 +309,35 @@ int fs_remove(char *file_name) {
 }
 
 int fs_open(char *file_name, int mode) {
-  printf("Função não implementada: fs_open\n");
-  return -1;
+  if (!formated) {
+    printf("Sistema de Arquivos não formatado!\n");
+    return 0;
+  }
+
+  int pos_dir = -1;
+
+  for(int i = 0; i < DIRENTRIES; i++){
+    if(dir[i].used && strcmp(file_name, dir[i].name) == 0){
+      pos_dir = i;
+      break;
+    }
+  }
+  
+  if (pos_dir == -1 && mode == FS_R){
+    printf("Arquivo não existe.\n");
+    return -1;
+  }
+
+  // se arquivo já existe, remove e cria de novo
+  if(pos_dir != -1) fs_remove(file_name);
+
+  pos_dir = fs_create_pos(file_name);
+  if(pos_dir == -1) return -1;
+
+  info[pos_dir].mode = mode;
+  info[pos_dir].open = 1;
+
+  return pos_dir;
 }
 
 int fs_close(int file)  {
@@ -254,7 +351,56 @@ int fs_write(char *buffer, int size, int file) {
 }
 
 int fs_read(char *buffer, int size, int file) {
-  printf("Função não implementada: fs_read\n");
-  return -1;
-}
+  if (!formated) {
+    printf("Sistema de Arquivos não formatado!\n");
+    return 0;
+  }  
 
+  if(size < 0){
+    printf("Tamanho inválido!\n");
+    return -1;
+  }
+
+  if(file < 0 || file >= DIRENTRIES){
+    printf("Identificador inválido!\n");
+    return -1;
+  }
+  
+  if(!dir[file].used || !info[file].open || info[file].mode == FS_W){
+    printf("Arquivo não aberto para leitura!\n");
+    return -1;
+  }
+
+  if(info[file].head == -1){
+    printf("Arquivo terminou!\n");
+    return 0;
+  }
+
+  int wrt = 0;
+  int cur = info[file].head;
+
+  char sector[CLUSTERSIZE];
+
+  while(fat[cur] != 2) {
+    int next = fat[cur];
+
+    if(wrt >= size)
+      return size < wrt ? size : wrt;
+
+    bl_read(fat[cur], sector);
+    snprintf(buffer + wrt, size - wrt, "%s", sector);
+
+    wrt += CLUSTERSIZE;
+    cur = next;
+  }
+
+  if(wrt >= size)
+      return size < wrt ? size : wrt;
+
+  bl_read(fat[cur], sector);
+  snprintf(buffer + wrt, size - wrt, "%s", sector);
+  wrt += CLUSTERSIZE;
+
+  info[file].head = -1;
+  return size < wrt ? size : wrt;
+}
