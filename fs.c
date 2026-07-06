@@ -31,6 +31,7 @@
 #define DIRENTRIES 128
 
 unsigned short fat[FATCLUSTERS];
+int total_clusters;
 
 typedef struct {
   char used;
@@ -40,7 +41,8 @@ typedef struct {
 } dir_entry;
 
 typedef struct {
-  int head;
+  int cur_block;
+  int offset;
   int mode;
   char open;
   char buffer[CLUSTERSIZE];
@@ -52,6 +54,8 @@ dir_info info[DIRENTRIES];
 int formated = 0;
 
 int fs_init() { // faz o "inverso" de fs_format
+  total_clusters = bl_size();
+
   // lê o disco e salva fat e dir
   for(int i = 0; i < 32; i++) {
     if(!bl_read(i, ((char *) fat) + i * CLUSTERSIZE))
@@ -62,7 +66,7 @@ int fs_init() { // faz o "inverso" de fs_format
 
   // verificação se está formatado
   formated = 1;
-  for(int i = 0; i < FATCLUSTERS; i++) {
+  for(int i = 0; i < total_clusters; i++) {
     if (i < 32 && fat[i] != 3) 
       formated = 0;
     else if(i == 32 && fat[i] != 4)
@@ -76,7 +80,7 @@ int fs_init() { // faz o "inverso" de fs_format
 
 int fs_format() { 
   // escreve fat e dir
-  for(int i = 0; i < FATCLUSTERS; i++) {
+  for(int i = 0; i < total_clusters; i++) {
     if(i < 32) fat[i] = 3;
     else if(i == 32) fat[i] = 4;
     else fat[i] = 1;
@@ -84,7 +88,6 @@ int fs_format() {
   
   for(int i = 0; i < DIRENTRIES; i++) {
     dir[i].used = 0;
-    info[i].head = 0;
     info[i].open = 0;
   }
 
@@ -108,7 +111,7 @@ int fs_free() {
   }
 
   int clusters_free = 0;
-  for(int i = 33; i < FATCLUSTERS; i++) {
+  for(int i = 33; i < total_clusters; i++) {
     if (fat[i] == 1) 
       clusters_free++;
   }
@@ -168,7 +171,7 @@ int fs_create(char* file_name) {
 
   // busca primeiro bloco livre na fat
   int first_fat = -1;
-  for(int i = 33; i < FATCLUSTERS; i++){
+  for(int i = 33; i < total_clusters; i++){
     if(fat[i] == 1){
       first_fat = i;
       break;
@@ -185,8 +188,9 @@ int fs_create(char* file_name) {
   strcpy(dir[first_dir].name, file_name);
   dir[first_dir].used = 1;
   dir[first_dir].first_block = first_fat;
-  info[first_dir].head = first_fat;
   dir[first_dir].size = 0;
+
+  info[first_dir].cur_block = first_fat;
 
   // escreve no disco
   for(int i = 0; i < 32; i++) {
@@ -233,7 +237,7 @@ int fs_create_pos(char* file_name) {
   // busca primeiro bloco livre na fat
   int first_fat = -1;
 
-  for(int i = 33; i < FATCLUSTERS; i++){
+  for(int i = 33; i < total_clusters; i++){
     if(fat[i] == 1){
       first_fat = i;
       break;
@@ -311,7 +315,7 @@ int fs_remove(char *file_name) {
 int fs_open(char *file_name, int mode) {
   if (!formated) {
     printf("Sistema de Arquivos não formatado!\n");
-    return 0;
+    return -1;
   }
 
   int pos_dir = -1;
@@ -337,6 +341,8 @@ int fs_open(char *file_name, int mode) {
   
   info[pos_dir].mode = mode;
   info[pos_dir].open = 1;
+  info[pos_dir].cur_block = dir[pos_dir].first_block;
+  info[pos_dir].offset = 0;
 
   return pos_dir;
 }
@@ -401,7 +407,7 @@ int fs_write(char *buffer, int size, int file) {
   count += CLUSTERSIZE;
 
   // percorre os blocos da fat
-  for(int i = 33; i < FATCLUSTERS && count < size; i++){
+  for(int i = 33; i < total_clusters && count < size; i++){
     if (fat[i] == 1) {
       snprintf(info[file].buffer, size - count, "%s", buffer + count);
       if(!bl_write(i, info[file].buffer))
@@ -441,36 +447,45 @@ int fs_read(char *buffer, int size, int file) {
     return -1;
   }
 
-  if(info[file].head == -1){
+  if(info[file].cur_block == -1){
     printf("Arquivo terminou!\n");
     return 0;
   }
 
-  int wrt = 0;
-  int cur = info[file].head;
+  int bytes_lidos = 0;
+  int cur = info[file].cur_block;
 
-  char sector[CLUSTERSIZE];
+  // enquanto nao estiver no ultimo bloco e ainda tem bytes para ler, faz o encadeamento na fat
+  while (fat[cur] != 2 && bytes_lidos < size) {
+    int disponiveis = CLUSTERSIZE - info[file].offset;
+    int copiar = size < disponiveis ? size : disponiveis; 
 
-  while(fat[cur] != 2) {
-    int next = fat[cur];
+    bl_read(cur, info[file].buffer);
+    memcpy(buffer + bytes_lidos, info[file].buffer + info[file].offset, copiar);
 
-    if(wrt >= size)
-      return size < wrt ? size : wrt;
+    bytes_lidos += copiar;
+    info[file].offset += copiar;
 
-    bl_read(fat[cur], sector);
-    snprintf(buffer + wrt, size - wrt, "%s", sector);
+    // se chega no final do bloco, atualiza o offset o cur_block
+    if (info[file].offset == CLUSTERSIZE) {
+      info[file].offset = 0;
+      cur = fat[cur];
+      info[file].cur_block = cur;
+    }
 
-    wrt += CLUSTERSIZE;
-    cur = next;
   }
 
-  if(wrt >= size)
-      return size < wrt ? size : wrt;
+  if (fat[cur] == 2) {
+    int resto = dir[file].size % CLUSTERSIZE;
+    if (resto == 0) resto = CLUSTERSIZE;
+    int copiar = size < resto ? size : resto; 
 
-  bl_read(fat[cur], sector);
-  snprintf(buffer + wrt, size - wrt, "%s", sector);
-  wrt += CLUSTERSIZE;
+    bl_read(cur, info[file].buffer);
+    memcpy(buffer + bytes_lidos, info[file].buffer + info[file].offset, copiar);
 
-  info[file].head = -1;
-  return size < wrt ? size : wrt;
+    bytes_lidos += copiar;
+    info[file].offset += copiar;
+  }
+
+  return bytes_lidos;
 }
