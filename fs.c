@@ -328,12 +328,13 @@ int fs_open(char *file_name, int mode) {
     return -1;
   }
 
-  // se arquivo já existe, remove e cria de novo
-  if(pos_dir != -1) fs_remove(file_name);
-
-  pos_dir = fs_create_pos(file_name);
-  if(pos_dir == -1) return -1;
-
+  // se arquivo aberto para escrita já existe, remove e cria de novo
+  if (mode == FS_W) {
+    if(pos_dir != -1) fs_remove(file_name);
+    pos_dir = fs_create_pos(file_name);
+    if(pos_dir == -1) return -1;
+  }
+  
   info[pos_dir].mode = mode;
   info[pos_dir].open = 1;
 
@@ -341,13 +342,82 @@ int fs_open(char *file_name, int mode) {
 }
 
 int fs_close(int file)  {
-  printf("Função não implementada: fs_close\n");
-  return 0;
+  if (!formated) {
+    printf("Sistema de Arquivos não formatado!\n");
+    return 0;
+  }  
+
+  if(file < 0 || file >= DIRENTRIES){
+    printf("Identificador inválido!\n");
+    return 0;
+  }
+  
+  if(!dir[file].used || !info[file].open){
+    printf("Não existe arquivo aberto com esse identificador!\n");
+    return 0;
+  }
+
+  info[file].open = 0;
+
+  // escreve no disco
+  for(int i = 0; i < 32; i++) {
+    if(!bl_write(i, ((char *) fat) + i * CLUSTERSIZE))
+      return 0;
+  }
+  if(!bl_write(32, (char *) dir))
+    return 0;
+
+  return 1;
 }
 
 int fs_write(char *buffer, int size, int file) {
-  printf("Função não implementada: fs_write\n");
-  return -1;
+  if (!formated) {
+    printf("Sistema de Arquivos não formatado!\n");
+    return -1;
+  }
+  
+  if(size < 0){
+    printf("Tamanho inválido!\n");
+    return -1;
+  }
+
+  if(file < 0 || file >= DIRENTRIES){
+    printf("Identificador inválido!\n");
+    return -1;
+  }
+  
+  if(!dir[file].used || !info[file].open || info[file].mode == FS_R){
+    printf("Arquivo não aberto para escrita!\n");
+    return -1;
+  }
+
+  int count = 0;
+  int ultimo_bloco = dir[file].first_block;
+
+  // escreve no primeiro bloco
+  snprintf(info[file].buffer, size - count, "%s", buffer + count);
+  if(!bl_write(ultimo_bloco, info[file].buffer))
+    return 0;
+  count += CLUSTERSIZE;
+
+  // percorre os blocos da fat
+  for(int i = 33; i < FATCLUSTERS && count < size; i++){
+    if (fat[i] == 1) {
+      snprintf(info[file].buffer, size - count, "%s", buffer + count);
+      if(!bl_write(i, info[file].buffer))
+        return 0;
+
+      fat[ultimo_bloco] = i;
+      ultimo_bloco = i;
+      count += CLUSTERSIZE;
+    }
+
+  }
+  fat[ultimo_bloco] = 2;
+  dir[file].size = size < count ? size : count;
+
+  return dir[file].size;
+
 }
 
 int fs_read(char *buffer, int size, int file) {
