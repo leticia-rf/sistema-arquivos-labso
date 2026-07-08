@@ -397,51 +397,46 @@ int fs_write(char *buffer, int size, int file) {
     return -1;
   }
 
-  int cur = info[file].cur_block;
-  int bytes_lidos = 0;
-
-  // escreve no primeiro bloco
-  if (info[file].offset == CLUSTERSIZE) {
-    info[file].offset = 0;
-    info[file].cur_block = cur;
-  }
-  int disponiveis = CLUSTERSIZE - info[file].offset;
-  int faltam = size - bytes_lidos;
-  int copiar = faltam < disponiveis ? faltam : disponiveis; 
-
-  memcpy(info[file].buffer + info[file].offset, buffer, copiar);
-  if(!bl_write(cur, info[file].buffer))
-    return 0;
   
-  bytes_lidos += copiar;
-  info[file].offset += copiar;
+  int bytes_lidos = 0;
 
   // percorre os blocos da fat
   if (info[file].offset == CLUSTERSIZE) {
     info[file].offset = 0;
-    info[file].cur_block = cur;
   }
-  for(int i = 33; i < total_clusters && bytes_lidos < size; i++){
-    if (fat[i] == 1) {
-      int disponiveis = CLUSTERSIZE - info[file].offset;
-      int faltam = size - bytes_lidos;
-      int copiar = faltam < disponiveis ? faltam : disponiveis;
-
-      memcpy(info[file].buffer + info[file].offset, buffer + bytes_lidos, copiar);
-      if(!bl_write(i, info[file].buffer))
+  int prev = info[file].cur_block;
+  int cur = 33;
+  while(bytes_lidos < size){
+    for(int i = cur; i <= total_clusters; i++){
+      if(i == total_clusters){
+        printf("Armazenamento cheio\n");
         return -1;
+      }
+      if (fat[cur] == 1) {
+        cur = i;
+        break;
+      }
+    }
 
-      fat[cur] = i;
-      cur = i;
+    int disponiveis = CLUSTERSIZE - info[file].offset;
+    int faltam = size - bytes_lidos;
+    int copiar = faltam < disponiveis ? faltam : disponiveis;
 
-      bytes_lidos += copiar;
-      info[file].offset += copiar;
+    memcpy(info[file].buffer + info[file].offset, buffer + bytes_lidos, copiar);
+    if(!bl_write(cur, info[file].buffer))
+      return -1;
 
-      
+    fat[prev] = cur;
+    fat[cur] = 2;
+    prev = cur;
+
+    bytes_lidos += copiar;
+    info[file].offset += copiar;
+    if (info[file].offset == CLUSTERSIZE) {
+      info[file].offset = 0;
     }
   }
 
-  fat[cur] = 2;
   dir[file].size += bytes_lidos;
 
   return bytes_lidos;
@@ -477,31 +472,12 @@ int fs_read(char *buffer, int size, int file) {
   int cur = info[file].cur_block;
 
   // enquanto nao estiver no ultimo bloco e ainda tem bytes para ler, faz o encadeamento na fat
-  while (fat[cur] != 2 && bytes_lidos < size) {
-    int disponiveis = CLUSTERSIZE - info[file].offset;
-    int faltam = size - bytes_lidos;
-    int copiar = faltam < disponiveis ? faltam : disponiveis; 
-
-    bl_read(cur, info[file].buffer);
-    memcpy(buffer + bytes_lidos, info[file].buffer + info[file].offset, copiar);
-
-    bytes_lidos += copiar;
-    info[file].offset += copiar;
-
-    // se chega no final do bloco, atualiza o offset o cur_block
-    if (info[file].offset == CLUSTERSIZE) {
-      info[file].offset = 0;
-      cur = fat[cur];
-      info[file].cur_block = cur;
+  while (bytes_lidos < size) {
+    int total_bloco = CLUSTERSIZE;
+    if(fat[cur] == 2  && dir[file].size % CLUSTERSIZE != 0){
+      total_bloco = dir[file].size % CLUSTERSIZE ;
     }
-
-  }
-
-  //Se estou no último bloco, o conteúdo inteiro dele não necessariamente é arquivo válido, então vou ver quanto do último bloco é arquivo e fazer as operações baseadas nisso
-  if (fat[cur] == 2) {
-    int total_bloco = dir[file].size % CLUSTERSIZE;
-    if(total_bloco == 0)
-      total_bloco =  CLUSTERSIZE;
+      
     int disponiveis = total_bloco - info[file].offset;
     int faltam = size - bytes_lidos;
     int copiar = faltam < disponiveis ? faltam : disponiveis; 
@@ -512,8 +488,19 @@ int fs_read(char *buffer, int size, int file) {
     bytes_lidos += copiar;
     info[file].offset += copiar;
 
-    if(copiar == disponiveis)
-      info[file].cur_block = -1;
+    // se chega no final do bloco, atualiza o offset o cur_block
+    if (info[file].offset == total_bloco) {
+      info[file].offset = 0;
+      cur = fat[cur];
+      info[file].cur_block = cur;
+      //Cheguei no último último bloco, então atualizo o cur_block para -1 (terminei de ler o arquivo)
+      if(cur == 2){
+        info[file].cur_block = -1;
+        //Caso o buffer seja maior que o arquivo, terminamos o loop
+        break;
+      }
+    }
+
   }
 
   return bytes_lidos;
