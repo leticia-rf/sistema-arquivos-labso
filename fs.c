@@ -224,7 +224,7 @@ int fs_create_pos(char* file_name) {
 
     if(dir[i].used && strcmp(file_name, dir[i].name) == 0){
       printf("Nome de arquivo duplicado.\n");
-      return 0;
+      return -1;
     }
   }
 
@@ -405,14 +405,17 @@ int fs_write(char *buffer, int size, int file) {
     info[file].offset = 0;
   }
   int prev = info[file].cur_block;
-  int cur = 33;
+  int cur;
+  
+  //Marcando o primeiro bloco como livre para funcionar na primeira interação do loop
+  fat[prev] = 1;
   while(bytes_lidos < size){
-    for(int i = cur; i <= total_clusters; i++){
+    for(int i = prev ; i <= total_clusters; i++){
       if(i == total_clusters){
         printf("Armazenamento cheio\n");
         return -1;
       }
-      if (fat[cur] == 1) {
+      if (fat[i] == 1) {
         cur = i;
         break;
       }
@@ -434,6 +437,7 @@ int fs_write(char *buffer, int size, int file) {
     info[file].offset += copiar;
     if (info[file].offset == CLUSTERSIZE) {
       info[file].offset = 0;
+      info[file].cur_block = cur;
     }
   }
 
@@ -474,7 +478,7 @@ int fs_read(char *buffer, int size, int file) {
   // enquanto nao estiver no ultimo bloco e ainda tem bytes para ler, faz o encadeamento na fat
   while (bytes_lidos < size) {
     int total_bloco = CLUSTERSIZE;
-    if(fat[cur] == 2  && dir[file].size % CLUSTERSIZE != 0){
+    if((fat[cur] == 2  && dir[file].size % CLUSTERSIZE != 0) || dir[file].size == 0){
       total_bloco = dir[file].size % CLUSTERSIZE ;
     }
       
