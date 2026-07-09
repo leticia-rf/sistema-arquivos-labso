@@ -397,49 +397,49 @@ int fs_write(char *buffer, int size, int file) {
     return -1;
   }
 
-  
-  int bytes_lidos = 0;
+  int bytes_escritos = 0;
+  int cur = info[file].cur_block;
 
-  // percorre os blocos da fat
-  if (info[file].offset == CLUSTERSIZE) {
-    info[file].offset = 0;
-  }
-  int prev = info[file].cur_block;
-  int cur = 33;
-  while(bytes_lidos < size){
-    for(int i = cur; i <= total_clusters; i++){
-      if(i == total_clusters){
+  while(bytes_escritos < size){
+    // Bloco atual cheio
+    if (info[file].offset == CLUSTERSIZE) {
+      info[file].offset = 0;
+
+      int novo_bloco = -1;
+      for(int i = 33; i < total_clusters; i++){
+        if (fat[i] == 1) {
+          novo_bloco = i;
+          break;
+        }
+      }
+
+      if(novo_bloco == -1){
         printf("Armazenamento cheio\n");
-        return -1;
+        return bytes_escritos > 0 ? bytes_escritos : -1;
       }
-      if (fat[cur] == 1) {
-        cur = i;
-        break;
-      }
+
+      fat[cur] = novo_bloco;
+      fat[novo_bloco] = 2;
+      cur = novo_bloco;
     }
 
     int disponiveis = CLUSTERSIZE - info[file].offset;
-    int faltam = size - bytes_lidos;
+    int faltam = size - bytes_escritos;
     int copiar = faltam < disponiveis ? faltam : disponiveis;
 
-    memcpy(info[file].buffer + info[file].offset, buffer + bytes_lidos, copiar);
+    memcpy(info[file].buffer + info[file].offset, buffer + bytes_escritos, copiar);
+    
     if(!bl_write(cur, info[file].buffer))
       return -1;
 
-    fat[prev] = cur;
-    fat[cur] = 2;
-    prev = cur;
-
-    bytes_lidos += copiar;
+    bytes_escritos += copiar;
     info[file].offset += copiar;
-    if (info[file].offset == CLUSTERSIZE) {
-      info[file].offset = 0;
-    }
   }
 
-  dir[file].size += bytes_lidos;
+  info[file].cur_block = cur;
+  dir[file].size += bytes_escritos;
 
-  return bytes_lidos;
+  return bytes_escritos;
 }
 
 int fs_read(char *buffer, int size, int file) {
@@ -482,7 +482,7 @@ int fs_read(char *buffer, int size, int file) {
     int faltam = size - bytes_lidos;
     int copiar = faltam < disponiveis ? faltam : disponiveis; 
 
-    bl_read(cur, info[file].buffer);
+    if (!bl_read(cur, info[file].buffer)) return 0;
     memcpy(buffer + bytes_lidos, info[file].buffer + info[file].offset, copiar);
 
     bytes_lidos += copiar;
