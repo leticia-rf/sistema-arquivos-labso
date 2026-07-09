@@ -224,7 +224,7 @@ int fs_create_pos(char* file_name) {
 
     if(dir[i].used && strcmp(file_name, dir[i].name) == 0){
       printf("Nome de arquivo duplicado.\n");
-      return 0;
+      return -1;
     }
   }
 
@@ -474,7 +474,7 @@ int fs_read(char *buffer, int size, int file) {
   // enquanto nao estiver no ultimo bloco e ainda tem bytes para ler, faz o encadeamento na fat
   while (bytes_lidos < size) {
     int total_bloco = CLUSTERSIZE;
-    if(fat[cur] == 2  && dir[file].size % CLUSTERSIZE != 0){
+    if((fat[cur] == 2  && dir[file].size % CLUSTERSIZE != 0) || dir[file].size == 0){
       total_bloco = dir[file].size % CLUSTERSIZE ;
     }
       
